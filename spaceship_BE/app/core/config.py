@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     admin_password: str
     public_base_url: str = "http://localhost:3000"
     cors_origins: str = "http://localhost:3000"
+    # Swagger UI (/docs) and the OpenAPI schema. Off unless switched on, so
+    # production does not publish the API's structure.
+    enable_docs: bool = False
 
     @field_validator("database_url")
     @classmethod

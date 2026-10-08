@@ -6,7 +6,12 @@ from app.api import admin, public
 from app.core.config import get_settings
 from app.core.exceptions import AppError
 
+settings = get_settings()
+
 app = FastAPI(
+    docs_url="/docs" if settings.enable_docs else None,
+    redoc_url="/redoc" if settings.enable_docs else None,
+    openapi_url="/openapi.json" if settings.enable_docs else None,
     title="SpaceShip API",
     version="0.1.0",
     description=(
@@ -18,7 +23,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=get_settings().cors_origin_list,
+    allow_origins=settings.cors_origin_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
