@@ -10,6 +10,10 @@ class _Brief(BaseModel):
     name: str
 
 
+class _CustomerBrief(_Brief):
+    phone: str | None
+
+
 class SessionStart(BaseModel):
     customer_id: int
     space_type_id: int
@@ -24,7 +28,7 @@ class SessionOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    customer: _Brief
+    customer: _CustomerBrief
     space_type: _Brief
     campaign: _Brief | None
     started_at: datetime

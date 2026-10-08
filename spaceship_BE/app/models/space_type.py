@@ -22,6 +22,9 @@ class SpaceType(Base):
     pricing_mode: Mapped[str] = mapped_column(String(20))
     is_active: Mapped[bool] = mapped_column(default=True)
 
+    # Replacing the list deletes the old tiers (the price list is edited as a whole).
     price_tiers: Mapped[list["PriceTier"]] = relationship(
-        back_populates="space_type", order_by="PriceTier.duration_minutes"
+        back_populates="space_type",
+        order_by="PriceTier.duration_minutes",
+        cascade="all, delete-orphan",
     )

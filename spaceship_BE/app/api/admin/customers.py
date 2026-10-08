@@ -16,10 +16,15 @@ router = APIRouter(prefix="/customers", tags=["Admin · Customers"])
     summary="Add a customer and generate their magic link",
 )
 def create_customer(payload: CustomerCreate, db: DbSession):
-    return customer_service.create_customer(db, payload.name)
+    return customer_service.create_customer(db, payload.name, payload.phone)
 
 
-@router.get("", response_model=list[CustomerOut], summary="List / search customers")
+@router.get(
+    "",
+    response_model=list[CustomerOut],
+    summary="List / search customers",
+    description="`q` matches the name or the phone number; several words narrow by all of them.",
+)
 def list_customers(db: DbSession, q: str | None = None, include_inactive: bool = False):
     return customer_repo.list_customers(db, q, include_inactive)
 
@@ -35,6 +40,7 @@ def get_customer(customer_id: int, db: DbSession):
     return CustomerDetail(
         id=customer.id,
         name=customer.name,
+        phone=customer.phone,
         token=customer.token,
         is_active=customer.is_active,
         created_at=customer.created_at,
@@ -44,7 +50,11 @@ def get_customer(customer_id: int, db: DbSession):
 
 
 @router.patch(
-    "/{customer_id}", response_model=CustomerOut, summary="Rename or deactivate a customer"
+    "/{customer_id}",
+    response_model=CustomerOut,
+    summary="Change a customer's name or phone, or deactivate them",
 )
 def update_customer(customer_id: int, payload: CustomerUpdate, db: DbSession):
-    return customer_service.update_customer(db, customer_id, payload.name, payload.is_active)
+    return customer_service.update_customer(
+        db, customer_id, payload.name, payload.phone, payload.is_active
+    )

@@ -2,7 +2,8 @@
 
 Run from spaceship_BE/:  python -m scripts.seed
 Safe to re-run: it does nothing if space types already exist.
-All prices below are SAMPLE values - edit them before going live.
+All prices below are SAMPLE values. The owner can change everything here
+afterwards from the admin area (Prices, Campaigns, Settings).
 """
 
 from sqlalchemy import select

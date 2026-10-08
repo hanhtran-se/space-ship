@@ -12,6 +12,8 @@ class Customer(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(200))
+    # Tells apart customers who share a name. Stored without spaces or punctuation.
+    phone: Mapped[str | None] = mapped_column(String(20), unique=True)
     token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     is_active: Mapped[bool] = mapped_column(default=True)

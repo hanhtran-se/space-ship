@@ -8,6 +8,8 @@ def get(db: Session, campaign_id: int) -> Campaign | None:
     return db.get(Campaign, campaign_id)
 
 
-def list_active(db: Session) -> list[Campaign]:
-    stmt = select(Campaign).where(Campaign.is_active.is_(True)).order_by(Campaign.name)
+def list_campaigns(db: Session, include_inactive: bool) -> list[Campaign]:
+    stmt = select(Campaign).order_by(Campaign.name)
+    if not include_inactive:
+        stmt = stmt.where(Campaign.is_active.is_(True))
     return list(db.scalars(stmt))

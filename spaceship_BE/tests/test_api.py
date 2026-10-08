@@ -9,8 +9,14 @@ ROOM_ID = 2
 CAMPAIGN_ID = 1
 
 
-def _create_customer(client, name="Lan"):
-    return client.post("/admin/customers", json={"name": name}, auth=ADMIN).json()
+_phones = iter(range(10_000))
+
+
+def _create_customer(client, name="Lan", phone=None):
+    phone = phone or f"0900{next(_phones):06d}"
+    response = client.post("/admin/customers", json={"name": name, "phone": phone}, auth=ADMIN)
+    assert response.status_code == 201, response.text
+    return response.json()
 
 
 def _check_in(client, customer_id, space_type_id=DESK_ID):
@@ -131,3 +137,151 @@ def test_magic_link_is_private_and_revocable(client):
 
     client.patch(f"/admin/customers/{customer['id']}", json={"is_active": False}, auth=ADMIN)
     assert client.get(f"/s/{customer['token']}").status_code == 404
+
+
+DESK_PAYLOAD = {
+    "name": "Window Desk",
+    "description": "By the window",
+    "capacity": 1,
+    "pricing_mode": "per_person",
+    "hourly_price": 20_000,
+    "combos": [{"hours": 5, "price": 80_000}, {"hours": 3, "price": 50_000}],
+    "full_day_price": 120_000,
+}
+
+
+def test_owner_can_create_edit_and_remove_a_space_type(client, db):
+    created = client.post("/admin/space-types", json=DESK_PAYLOAD, auth=ADMIN)
+    assert created.status_code == 201
+    space_type = created.json()
+    assert [(t["kind"], t["label"], t["price"]) for t in space_type["price_tiers"]] == [
+        ("hourly", "1 hour", 20_000),
+        ("combo", "Combo 3 hours", 50_000),
+        ("combo", "Combo 5 hours", 80_000),
+        ("full_day", "Full day", 120_000),
+    ]
+
+    # New prices are used straight away: 4 billable hours = 3-hour combo + 1 hour.
+    customer = _create_customer(client)
+    session_id = _check_in(client, customer["id"], space_type["id"]).json()["id"]
+    _backdate(db, session_id, hours=4)
+    seated = client.get("/admin/sessions/open", auth=ADMIN).json()
+    assert seated[0]["estimated_price"] == 70_000
+
+    # A space in use cannot be removed.
+    assert client.delete(f"/admin/space-types/{space_type['id']}", auth=ADMIN).status_code == 409
+
+    # Editing replaces the whole price list.
+    edited = client.put(
+        f"/admin/space-types/{space_type['id']}",
+        json={**DESK_PAYLOAD, "name": "Quiet Desk", "combos": [], "full_day_price": None},
+        auth=ADMIN,
+    ).json()
+    assert edited["name"] == "Quiet Desk"
+    assert [t["kind"] for t in edited["price_tiers"]] == ["hourly"]
+    bill = client.post(f"/admin/sessions/{session_id}/close", auth=ADMIN).json()
+    assert bill["final_price"] == 80_000
+
+    assert client.delete(f"/admin/space-types/{space_type['id']}", auth=ADMIN).status_code == 204
+    names = [s["name"] for s in client.get("/admin/space-types", auth=ADMIN).json()]
+    assert "Quiet Desk" not in names
+    # The closed session still shows where the customer sat.
+    detail = client.get(f"/admin/customers/{customer['id']}", auth=ADMIN).json()
+    assert detail["sessions"][0]["space_type"]["name"] == "Quiet Desk"
+
+
+def test_space_type_price_list_is_validated(client):
+    four_combos = [{"hours": h, "price": 1000} for h in (2, 3, 4, 5)]
+    too_many = client.post(
+        "/admin/space-types", json={**DESK_PAYLOAD, "combos": four_combos}, auth=ADMIN
+    )
+    assert too_many.status_code == 422
+    duplicate = client.post(
+        "/admin/space-types",
+        json={**DESK_PAYLOAD, "combos": [{"hours": 3, "price": 1}, {"hours": 3, "price": 2}]},
+        auth=ADMIN,
+    )
+    assert duplicate.status_code == 422
+
+
+def test_owner_can_manage_campaigns(client):
+    payload = {
+        "name": "Student",
+        "condition": "Show a student card",
+        "discount_type": "amount",
+        "discount_value": 5_000,
+    }
+    campaign = client.post("/admin/campaigns", json=payload, auth=ADMIN).json()
+    assert campaign["is_active"] is True
+
+    customer = _create_customer(client)
+    session_id = _check_in(client, customer["id"]).json()["id"]
+    bill = client.post(
+        f"/admin/sessions/{session_id}/close", json={"campaign_id": campaign["id"]}, auth=ADMIN
+    ).json()
+    assert (bill["base_price"], bill["discount_amount"], bill["final_price"]) == (15_000, 5_000, 10_000)
+
+    # Switched off: hidden from checkout, still listed for the owner to manage.
+    off = client.put(
+        f"/admin/campaigns/{campaign['id']}", json={**payload, "is_active": False}, auth=ADMIN
+    )
+    assert off.json()["is_active"] is False
+    pickable = [c["name"] for c in client.get("/admin/campaigns", auth=ADMIN).json()]
+    assert "Student" not in pickable
+    everything = client.get("/admin/campaigns?include_inactive=true", auth=ADMIN).json()
+    assert "Student" in [c["name"] for c in everything]
+
+    too_much = client.post(
+        "/admin/campaigns",
+        json={**payload, "discount_type": "percent", "discount_value": 150},
+        auth=ADMIN,
+    )
+    assert too_much.status_code == 422
+
+
+def test_phone_is_required_normalized_and_unique(client):
+    assert client.post("/admin/customers", json={"name": "Lan"}, auth=ADMIN).status_code == 422
+    bad = client.post("/admin/customers", json={"name": "Lan", "phone": "12ab"}, auth=ADMIN)
+    assert bad.status_code == 422
+
+    lan = _create_customer(client, "Lan", "090 123-4567")
+    assert lan["phone"] == "0901234567"
+
+    duplicate = client.post(
+        "/admin/customers", json={"name": "Someone else", "phone": "0901.234.567"}, auth=ADMIN
+    )
+    assert duplicate.status_code == 409
+    assert "Lan" in duplicate.json()["detail"]
+
+
+def test_phone_can_be_changed_but_not_to_a_taken_number(client):
+    lan = _create_customer(client, "Lan", "0901234567")
+    minh = _create_customer(client, "Minh", "0907654321")
+
+    taken = client.patch(
+        f"/admin/customers/{minh['id']}", json={"phone": "0901234567"}, auth=ADMIN
+    )
+    assert taken.status_code == 409
+
+    # Saving a customer's own number again is not a clash.
+    same = client.patch(f"/admin/customers/{lan['id']}", json={"phone": "0901234567"}, auth=ADMIN)
+    assert same.status_code == 200
+    changed = client.patch(
+        f"/admin/customers/{minh['id']}", json={"phone": "0911111111"}, auth=ADMIN
+    )
+    assert changed.json()["phone"] == "0911111111"
+
+
+def test_search_by_name_phone_or_both(client):
+    _create_customer(client, "Lan Nguyen", "0901234567")
+    _create_customer(client, "Lan Tran", "0907654321")
+    _create_customer(client, "Minh Tran", "0911111111")
+
+    def search(q):
+        found = client.get("/admin/customers", params={"q": q}, auth=ADMIN).json()
+        return sorted(c["name"] for c in found)
+
+    assert search("lan") == ["Lan Nguyen", "Lan Tran"]
+    assert search("0911") == ["Minh Tran"]
+    assert search("lan 7654") == ["Lan Tran"]
+    assert search("tran 0901") == []
