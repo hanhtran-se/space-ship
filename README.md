@@ -4,15 +4,6 @@ A small web app that replaces the paper loyalty card at a co-working space. The 
 
 **Live product:** <https://space-ship-eight.vercel.app>
 
-## Try it
-
-The link opens the owner's sign-in screen. Sign in with:
-
-| | |
-|---|---|
-| Username | `guiChiLanAnh` |
-| Password | `lan@nhstudynook2025` |
-
 A good first run: add a space type under **Prices**, add a customer under **Customers** (you get their private link and QR code), then **Check in** and **Check out** from **Seated**. Open the customer's link in another tab to see what they see.
 
 Customers never see the sign-in screen: each one gets their own private link (`/s/…`) from the owner.
